@@ -23,6 +23,7 @@ import (
 
 	"github.com/siglens/siglens/pkg/blob"
 	"github.com/siglens/siglens/pkg/segment/structs"
+	tracing_utils "github.com/siglens/siglens/pkg/segment/tracing/utils"
 	sutils "github.com/siglens/siglens/pkg/segment/utils"
 	"github.com/siglens/siglens/pkg/utils"
 	log "github.com/sirupsen/logrus"
@@ -117,7 +118,7 @@ func readSingleSst(fdata []byte, qid uint64) (*structs.SegStats, error) {
 	var hllSize uint32
 
 	switch version {
-	case sutils.VERSION_SEGSTATS_BUF_V4[0]:
+	case sutils.VERSION_SEGSTATS_BUF_V5[0]:
 		hllSize = utils.BytesToUint32LittleEndian(fdata[idx : idx+4])
 		idx += 4
 	default:
@@ -185,6 +186,20 @@ func readNumericStats(sst *structs.SegStats, fdata []byte, idx uint32) {
 
 	// read NumericCount
 	sst.NumStats.NumericCount = utils.BytesToUint64LittleEndian(fdata[idx : idx+8])
+	idx += 8
+
+	// read ValuesLength
+	valuesLength := utils.BytesToUint64LittleEndian(fdata[idx : idx+8])
+	log.Infof("Read Values1: %v", fdata[idx:idx+8*(uint32(valuesLength)+1)])
+	idx += 8
+	// sst.Values = make([]float64, 1)
+	// sst.Values[0] = float64(valuesLength)
+	sst.Values = make([]float64, valuesLength)
+	for ind := range sst.Values {
+		sst.Values[ind] = utils.BytesToFloat64LittleEndian(fdata[idx : idx+8])
+		idx += 8
+	}
+	log.Infof("Read Values2: %v", fdata[idx-8*(1+uint32(valuesLength)):idx])
 }
 
 func readNonNumericStats(sst *structs.SegStats, fdata []byte, idx uint32) error {
@@ -436,6 +451,8 @@ func GetSegCount(runningSegStat *structs.SegStats,
 }
 
 func GetSegAvg(runningSegStat *structs.SegStats, currSegStat *structs.SegStats) (*sutils.NumTypeEnclosure, error) {
+	log.Infof("Code has reached GetSegAvg with params %v and %v", runningSegStat, currSegStat)
+	log.Infof("CurrSegStat has values sum: %v and count: %v", currSegStat.NumStats.Sum, currSegStat.Count)
 	// Initialize result with default values
 	rSst := sutils.NumTypeEnclosure{
 		Ntype:    sutils.SS_DT_FLOAT,
@@ -485,6 +502,66 @@ func getAverage(sum sutils.NumTypeEnclosure, count uint64) (float64, error) {
 		return avg, fmt.Errorf("getAverage: invalid data type: %v", sum.Ntype)
 	}
 	return avg, nil
+}
+
+func GetSegMedian(runningSegStat *structs.SegStats, currSegStat *structs.SegStats) (*sutils.NumTypeEnclosure, error) {
+	log.Infof("Code has reached GetSegMedian with params %v and %v", runningSegStat, currSegStat)
+	log.Infof("CurrSegStat has values %v", currSegStat.Values)
+	if currSegStat.Records != nil {
+		log.Infof("CurrSegStat has records %v", len(currSegStat.Records))
+	} else {
+		log.Infof("CurrSegStat has records %v", nil)
+	}
+	// Initialize result with default values
+	rSst := sutils.NumTypeEnclosure{
+		Ntype:    sutils.SS_DT_FLOAT,
+		IntgrVal: 0,
+		FloatVal: 0.0,
+	}
+
+	if currSegStat == nil {
+		return &rSst, fmt.Errorf("GetSegMedian: currSegStat is nil")
+	}
+
+	if !currSegStat.IsNumeric {
+		return &rSst, fmt.Errorf("GetSegMedian: current segStats is non-numeric")
+	}
+
+	// If running segment statistics are nil, return the current segment's median
+	if runningSegStat == nil {
+		median, err := getMedian(currSegStat.Values)
+		rSst.FloatVal = median
+		return &rSst, err
+	}
+
+	// Update running segment statistics
+	runningSegStat.Values = append(runningSegStat.Values, currSegStat.Values...)
+
+	// Calculate and return the median
+	median, err := getMedian(runningSegStat.Values)
+	rSst.FloatVal = median
+	return &rSst, err
+}
+
+// Helper function to calculate the median of nums
+func getMedian(nums []float64) (float64, error) {
+	log.Error("getMedian: length is 0, median is undefined")
+	if len(nums) == 0 {
+		return 0.0, nil
+	}
+	return tracing_utils.FindPercentileData(nums, 50), nil
+	// return -63.0, nil
+	// for _, num := range nums {
+	// 	switch num.Ntype {
+	// 		case sutils.SS_DT_FLOAT:
+	// 			median = num.FloatVal
+	// 		case sutils.SS_DT_SIGNED_NUM:
+	// 			median = float64(num.IntgrVal)
+	// 		default:
+	// 			return median, fmt.Errorf("getAverage: invalid data type: %v", num.Ntype)
+	// 	}
+	// }
+	// return median, nil
 }
 
 func GetSegList(runningSegStat *structs.SegStats,

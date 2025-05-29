@@ -91,6 +91,7 @@ func RunConcurrentQueries(dest string, query string, numOfConcurrentQueries int,
 		"queryLanguage": queryLanguage,
 	}
 
+	log.Infof("code has reached RunConcurrentQueries")
 	webSocketURL := fmt.Sprintf("ws://%v/api/search/ws", dest)
 
 	log.Infoln()

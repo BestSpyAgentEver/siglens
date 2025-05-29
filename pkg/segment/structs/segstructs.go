@@ -544,6 +544,7 @@ type SegStats struct {
 	NumStats    *NumericStats
 	StringStats *StringStats
 	Records     []*sutils.CValueEnclosure
+	Values      []float64 // for median
 }
 
 type NumericStats struct {
@@ -585,6 +586,10 @@ type RangeStat struct {
 type AvgStat struct {
 	Count int64
 	Sum   float64
+}
+
+type MedianStat struct {
+	Values []float64
 }
 
 type FieldGetter interface {
@@ -770,8 +775,10 @@ func UpdateMinMax(stats *SegStats, value sutils.CValueEnclosure) {
 }
 
 func (ss *SegStats) Merge(other *SegStats) {
+	log.Info("ss.merge is called")
 	ss.Count += other.Count
 	ss.Records = append(ss.Records, other.Records...)
+	ss.Values = append(ss.Values, other.Values...)
 	if ss.Hll != nil && other.Hll != nil {
 		err := ss.Hll.StrictUnion(other.Hll.Hll)
 		if err != nil {
@@ -1449,7 +1456,6 @@ var unsupportedStatsFuncs = map[sutils.AggregateFunctions]struct{}{
 	sutils.ExactPerc:    {},
 	sutils.Perc:         {},
 	sutils.UpperPerc:    {},
-	sutils.Median:       {},
 	sutils.Mode:         {},
 	sutils.Stdev:        {},
 	sutils.Stdevp:       {},

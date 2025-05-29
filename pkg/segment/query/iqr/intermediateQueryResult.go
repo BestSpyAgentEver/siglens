@@ -1580,6 +1580,7 @@ func (iqr *IQR) CreateSegmentStatsResults(searchResults *segresults.SearchResult
 		return nil
 	}
 
+	log.Info("CreateSegmentStatsResults calling UpdateSegmentStats")
 	err := searchResults.UpdateSegmentStats(segStatsMap, measureAggs)
 	if err != nil {
 		return utils.TeeErrorf("qid=%v, statsProcessor.extractSegmentStatsResults: cannot update segment stats; err=%v", iqr.GetQID(), err)

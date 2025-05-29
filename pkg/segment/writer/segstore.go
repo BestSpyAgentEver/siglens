@@ -527,6 +527,9 @@ func convertColumnToStrings(wipBlock *WipBlock, colName string, segmentKey strin
 }
 
 func (segstore *SegStore) AppendWipToSegfile(streamid string, forceRotate bool, isKibana bool, onTimeRotate bool) error {
+
+	log.Infof("AppendWipToSegfile: segstore segs is %+v", segstore.AllSst["latency"])
+
 	// If there's columns that had both strings and numbers in them, we need to
 	// try converting them all to numbers, but if that doesn't work we'll
 	// convert them all to strings.
@@ -1527,6 +1530,8 @@ func (ss *SegStore) FlushSegStats() error {
 		return err
 	}
 
+	log.Infof("FlushSegStats: AllSst = %+v", ss.AllSst["latency"])
+
 	for cname, sst := range ss.AllSst {
 
 		// cname len
@@ -1543,6 +1548,9 @@ func (ss *SegStore) FlushSegStats() error {
 			return err
 		}
 
+		if cname == "latency" {
+			log.Infof("FlushSegStats calling writeSstToBuf for latency sst: %+v", sst)
+		}
 		idx, err := writeSstToBuf(sst, ss.segStatsWorkBuf)
 		if err != nil {
 			log.Errorf("FlushSegStats: error writing to buf err=%v", err)
@@ -1576,16 +1584,18 @@ func (ss *SegStore) FlushSegStats() error {
 /*
 Encoding Schema for SegStats Single Column Data
 [Version 1B] [isNumeric 1B] [Count 8B] [HLL_Size 4B] [HLL_Data xB]
-Numeric [DType 1B] [Min 8B] [DType 1B] [Max 8B] [NType 1B] [Sum 8B] [NumericCount 8B]
+Numeric [DType 1B] [Min 8B] [DType 1B] [Max 8B] [NType 1B] [Sum 8B] [NumericCount 8B] [ValuesLength 8B] [Values xB]
 OR
 NonNumeric [DType 1B] [Min_Size 2B] [Min_Data xB] [Max_Size 2B] [Max_Data xB]
 */
 func writeSstToBuf(sst *structs.SegStats, buf []byte) (uint32, error) {
 
+	log.Infof("writeSstToBuf: sst = %+v", sst)
+
 	idx := uint32(0)
 
 	// version
-	copy(buf[idx:], sutils.VERSION_SEGSTATS_BUF_V4)
+	copy(buf[idx:], sutils.VERSION_SEGSTATS_BUF_V5)
 	idx++
 
 	// isNumeric
@@ -1695,6 +1705,20 @@ func writeSstToBuf(sst *structs.SegStats, buf []byte) (uint32, error) {
 	utils.Uint64ToBytesLittleEndianInplace(sst.NumStats.NumericCount, buf[idx:])
 	idx += 8
 
+	// Values
+	// sst.Values = []float64{1, 5, 10, 5, 1} // TODO: remove this
+	uintLen := uint64(len(sst.Values))
+	utils.Uint64ToBytesLittleEndianInplace(uintLen, buf[idx:])
+	idx += 8
+
+	if uint64(idx)+8*uintLen > uint64(len(buf)) {
+		return 0, fmt.Errorf("writeSstToBuf: Insufficient buffer space")
+	}
+	for _, val := range sst.Values {
+		utils.Float64ToBytesLittleEndianInplace(val, buf[idx:])
+		idx += 8
+	}
+	log.Infof("Wrote Values: %v", buf[idx-8*(1+uint32(uintLen)):idx])
 	return idx, nil
 }
 

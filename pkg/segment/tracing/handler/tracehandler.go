@@ -435,7 +435,7 @@ func ExtractSpanID(searchText string) (bool, string) {
 
 // Call /api/search endpoint
 func processSearchRequest(searchRequestBody *structs.SearchRequestBody, myid int64) (*segstructs.PipeSearchResponseOuter, error) {
-
+	log.Info("Code has reached processSearchRequest")
 	modifiedData, err := json.Marshal(searchRequestBody)
 	if err != nil {
 		return nil, fmt.Errorf("processSearchRequest: could not marshal to json body=%v, err=%v", *searchRequestBody, err)

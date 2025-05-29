@@ -95,6 +95,7 @@ func ProcessPipeSearchWebsocket(conn *websocket.Conn, orgid int64, ctx *fasthttp
 	}
 
 	ti := structs.InitTableInfo(indexNameIn, orgid, false)
+	log.Info("Code has reached ProcessPipeSearchWebSocket")
 	log.Infof("qid=%v, ProcessPipeSearchWebsocket: index=[%v] searchString=[%v] scrollFrom=[%v]",
 		qid, ti.String(), searchText, scrollFrom)
 
@@ -232,6 +233,7 @@ func readInitialEvent(qid uint64, conn *websocket.Conn) (map[string]interface{},
 	}
 
 	log.Infof("qid=%d, Read initial event from websocket: %+v", qid, readEvent)
+	log.Infof("reached ReadInitialEvent")
 	return readEvent, nil
 }
 

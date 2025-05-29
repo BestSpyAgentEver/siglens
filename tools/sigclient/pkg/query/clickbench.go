@@ -118,6 +118,7 @@ func ValidateClickBenchQueries(dest string, queriesAndRespTimes []QueryAndRespTi
 	endEpoch := "now"
 	queryLanguage := "Splunk QL"
 
+	log.Info("code has reached ValidateClickBenchQueries")
 	url := fmt.Sprintf("http://%s/api/search", dest)
 
 	queryReq := map[string]interface{}{

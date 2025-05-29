@@ -699,6 +699,9 @@ func verifyResults(value interface{}, relation, expectedValue string, query stri
 // and a colon separated list of keys for the groupby call, or * if aggregates were called without
 // a groupby statement.
 func RunQueryFromFile(dest string, numIterations int, prefix string, continuous, verbose bool, filepath string, bearerToken string) {
+
+	log.Info("code has reached RunQueryFromFile")
+
 	// open file
 	f, err := os.Open(filepath)
 	if err != nil {
@@ -746,6 +749,7 @@ func RunQueryFromFile(dest string, numIterations int, prefix string, continuous,
 
 		log.Infof("RunQueryFromFile: index=%v Running query: %v", index, rec[0])
 
+		log.Info("code has reached RunQueryFromFile")
 		// create websocket connection
 		conn, _, err := websocket.DefaultDialer.Dial("ws://localhost:5122/api/search/ws", nil)
 		if err != nil {
@@ -836,6 +840,7 @@ func RunQueryFromFile(dest string, numIterations int, prefix string, continuous,
 }
 
 func RunQueryFromFileAndOutputResponseTimes(dest string, filepath string, queryResultFile string) {
+	log.Info("code has reached RunQueryFromFileAndOutputResponseTimes")
 	webSocketURL := dest + "/api/search/ws"
 	if queryResultFile == "" {
 		queryResultFile = "./query_results.csv"

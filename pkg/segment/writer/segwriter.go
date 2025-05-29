@@ -339,9 +339,15 @@ func (ss *SegStore) doLogEventFilling(ple *ParsedLogEvent, tsKey *string) (bool,
 	colRis := ss.wipBlock.columnRangeIndexes
 	segstats := ss.AllSst
 	for i := uint16(0); i < ple.numCols; i++ {
+		if segstats["latency"] == nil || segstats["latency"].Count <= 2 {
+			log.Infof("doLogEventFilling1: segstats[latency] = %+v", segstats["latency"])
+		}
 		cname := ple.allCnames[i]
 		ctype := ple.allCvalsTypeLen[i][0]
 		colWip, _, matchedCol = ss.initAndBackFillColumn(cname, ValTypeToSSDType(ctype), matchedCol)
+		if segstats["latency"] == nil || segstats["latency"].Count <= 2 {
+			log.Infof("doLogEventFilling2: segstats[latency] = %+v", segstats["latency"])
+		}
 
 		switch ctype {
 		case VALTYPE_ENC_SMALL_STRING[0]:
@@ -424,6 +430,9 @@ func (ss *SegStore) doLogEventFilling(ple *ParsedLogEvent, tsKey *string) (bool,
 		default:
 			return false, utils.TeeErrorf("doLogEventFilling: unknown ctype: %v", ctype)
 		}
+		if segstats["latency"] == nil || segstats["latency"].Count <= 2 {
+			log.Infof("doLogEventFilling3: segstats[latency] = %+v", segstats["latency"])
+		}
 	}
 
 	for colName, foundCol := range ss.wipBlock.columnsInBlock {
@@ -454,12 +463,20 @@ func (segstore *SegStore) AddEntry(streamid string, indexName string, flush bool
 	tsKey := config.GetTimeStampKey()
 
 	segstore.Lock.Lock()
+	if segstore.AllSst["latency"] == nil || segstore.AllSst["latency"].Count <= 2 {
+		log.Infof("AddEntry: segstore[latency] is %+v", segstore.AllSst["latency"])
+	}
 	defer segstore.Lock.Unlock()
 
-	for _, ple := range pleArray {
+	for idx, ple := range pleArray {
+
+		if segstore.AllSst["latency"] == nil || segstore.AllSst["latency"].Count <= 2 {
+			log.Infof("AddEntry: indx %v, segstore[latency] is %+v", idx, segstore.AllSst["latency"])
+		}
 
 		if segstore.wipBlock.maxIdx+MAX_RECORD_SIZE >= WIP_SIZE ||
 			segstore.wipBlock.blockSummary.RecCount >= MAX_RECS_PER_WIP {
+			log.Infof("AddEntry1: segstore[latency] is %+v", segstore.AllSst["latency"])
 			err := segstore.AppendWipToSegfile(streamid, false, false, false)
 			if err != nil {
 				log.Errorf("SegStore.AddEntry: failed to append segkey=%v, err=%v", segstore.SegmentKey, err)
@@ -498,6 +515,7 @@ func (segstore *SegStore) AddEntry(streamid string, indexName string, flush bool
 		}
 
 		if flush {
+			log.Infof("AddEntry2: segstore[latency] is %+v", segstore.AllSst["latency"])
 			err = segstore.AppendWipToSegfile(streamid, false, false, false)
 			if err != nil {
 				log.Errorf("SegStore.AddEntry: failed to append during flush segkey=%v, err=%v", segstore.SegmentKey, err)
@@ -546,6 +564,7 @@ func ForcedFlushToSegfile() {
 	allSegStoresLock.Lock()
 	for streamid, segstore := range allSegStores {
 		segstore.Lock.Lock()
+		log.Infof("ForcedFlushToSegfile: segstore[latency] is %+v", segstore.AllSst["latency"])
 		err := segstore.AppendWipToSegfile(streamid, true, false, false)
 		if err != nil {
 			log.Errorf("ForcedFlushToSegfile: failed to append err=%v", err)
@@ -618,6 +637,7 @@ func ForceRotateSegmentsForTest() {
 	allSegStoresLock.Lock()
 	for streamid, segstore := range allSegStores {
 		segstore.Lock.Lock()
+		log.Infof("ForceRotateSegmentsForTest: segstore[latency] is %+v", segstore.AllSst["latency"])
 		err := segstore.AppendWipToSegfile(streamid, false, false, true)
 		if err != nil {
 			log.Errorf("ForceRotateSegmentsForTest: failed to append,  streamid=%s err=%v", err, streamid)
@@ -640,6 +660,7 @@ func removeStaleSegmentsLoop() {
 func FlushWipBufferToFile(idleWipFlushDuration *time.Duration, maxWaitWipFlushDuration *time.Duration) {
 	allSegStoresLock.RLock()
 	for streamid, segstore := range allSegStores {
+		log.Infof("FlushWipBufferToFile: segstore[latency] is %+v", segstore.AllSst["latency"])
 		segstore.Lock.Lock()
 		if segstore.wipBlock.maxIdx == 0 {
 			segstore.Lock.Unlock()

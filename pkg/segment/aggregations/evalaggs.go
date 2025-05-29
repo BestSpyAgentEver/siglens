@@ -26,6 +26,7 @@ import (
 	"github.com/siglens/siglens/pkg/config"
 	"github.com/siglens/siglens/pkg/segment/structs"
 	sutils "github.com/siglens/siglens/pkg/segment/utils"
+	log "github.com/sirupsen/logrus"
 )
 
 func PerformEvalAggForMinOrMax(measureAgg *structs.MeasureAggregator, currResultExists bool, currResult sutils.CValueEnclosure, fieldToValue map[string]sutils.CValueEnclosure, isMin bool) (sutils.CValueEnclosure, error) {
@@ -468,6 +469,8 @@ func ComputeAggEvalForCount(measureAgg *structs.MeasureAggregator, sstMap map[st
 }
 
 func PerformEvalAggForAvg(measureAgg *structs.MeasureAggregator, count uint64, currResultExists bool, currAvgStat *structs.AvgStat, fieldToValue map[string]sutils.CValueEnclosure) (*structs.AvgStat, error) {
+	log.Info("Code has reached PerformEvalAggForAvg!")
+	fmt.Printf("Performing Avg aggregation with count %v", count)
 
 	if len(fieldToValue) == 0 {
 		floatValue, _, isNumeric, err := GetFloatValueAfterEvaluation(measureAgg, fieldToValue)
@@ -504,6 +507,7 @@ func PerformEvalAggForAvg(measureAgg *structs.MeasureAggregator, count uint64, c
 }
 
 func ComputeAggEvalForAvg(measureAgg *structs.MeasureAggregator, sstMap map[string]*structs.SegStats, measureResults map[string]sutils.CValueEnclosure, runningEvalStats map[string]interface{}) error {
+	log.Info("Code has reached ComputeAggEvalForAvg")
 	fields := measureAgg.ValueColRequest.GetFields()
 	fieldToValue := make(map[string]sutils.CValueEnclosure)
 	avgStat := &structs.AvgStat{}
@@ -540,6 +544,100 @@ func ComputeAggEvalForAvg(measureAgg *structs.MeasureAggregator, sstMap map[stri
 			currResultExists = true
 			if err != nil {
 				return fmt.Errorf("ComputeAggEvalForAvg: Error while performing eval agg for avg, err: %v", err)
+			}
+		}
+	}
+
+	runningEvalStats[measureAgg.String()] = &avgStat
+
+	measureResults[measureAgg.String()] = sutils.CValueEnclosure{
+		Dtype: sutils.SS_DT_FLOAT,
+		CVal:  avgStat.Sum / float64(avgStat.Count),
+	}
+
+	return nil
+}
+
+func PerformEvalAggForMedian(measureAgg *structs.MeasureAggregator, count uint64, currResultExists bool, currAvgStat *structs.AvgStat, fieldToValue map[string]sutils.CValueEnclosure) (*structs.AvgStat, error) {
+	log.Info("Code has reached PerformEvalAggForMedian!")
+	fmt.Printf("Performing Median aggregation with count %v", count)
+
+	if len(fieldToValue) == 0 {
+		floatValue, _, isNumeric, err := GetFloatValueAfterEvaluation(measureAgg, fieldToValue)
+		// We cannot compute avg if constant is not numeric
+		if err != nil || !isNumeric {
+			return currAvgStat, fmt.Errorf("PerformEvalAggForMedian: Error while evaluating value col request to a numeric value, err: %v", err)
+		}
+		currAvgStat.Sum += floatValue * float64(count)
+		currAvgStat.Count += int64(count)
+	} else {
+		if measureAgg.ValueColRequest.BooleanExpr != nil {
+			boolResult, err := measureAgg.ValueColRequest.BooleanExpr.Evaluate(fieldToValue)
+			if err != nil {
+				return currAvgStat, fmt.Errorf("PerformEvalAggForMedian: there are some errors in the eval function that is inside the avg function: %v", err)
+			}
+			if boolResult {
+				currAvgStat.Sum++
+				currAvgStat.Count++
+			}
+		} else {
+			floatValue, _, isNumeric, err := GetFloatValueAfterEvaluation(measureAgg, fieldToValue)
+			if err != nil {
+				return currAvgStat, fmt.Errorf("PerformEvalAggForMedian: Error while evaluating value col request, err: %v", err)
+			}
+			// records that are not float will be ignored
+			if isNumeric {
+				currAvgStat.Sum += floatValue
+				currAvgStat.Count++
+			}
+		}
+	}
+
+	currAvgStat.Sum = 0
+	currAvgStat.Count = 0
+	// panic("PerformEvalAggForMedian just got called!")
+
+	return currAvgStat, nil
+}
+
+func ComputeAggEvalForMedian(measureAgg *structs.MeasureAggregator, sstMap map[string]*structs.SegStats, measureResults map[string]sutils.CValueEnclosure, runningEvalStats map[string]interface{}) error {
+	log.Info("Code has reached ComputeAggEvalForMedian")
+	fields := measureAgg.ValueColRequest.GetFields()
+	fieldToValue := make(map[string]sutils.CValueEnclosure)
+	avgStat := &structs.AvgStat{}
+	var err error
+	avgStatVal, currResultExists := runningEvalStats[measureAgg.String()]
+	if currResultExists {
+		avgStat.Sum = avgStatVal.(*structs.AvgStat).Sum
+		avgStat.Count = avgStatVal.(*structs.AvgStat).Count
+	}
+
+	if len(fields) == 0 {
+		countStat, exist := sstMap["*"]
+		if !exist {
+			return fmt.Errorf("ComputeAggEvalForMedian: sstMap did not have count when constant was used for measureAgg: %v", measureAgg.String())
+		}
+		avgStat, err = PerformEvalAggForAvg(measureAgg, countStat.Count, currResultExists, avgStat, fieldToValue)
+		if err != nil {
+			return fmt.Errorf("ComputeAggEvalForMedian: Error while performing eval agg for sum, err: %v", err)
+		}
+	} else {
+		sst, ok := sstMap[fields[0]]
+		if !ok {
+			return fmt.Errorf("ComputeAggEvalForMedian: sstMap did not have segstats for field %v, measureAgg: %v", fields[0], measureAgg.String())
+		}
+
+		length := len(sst.Records)
+		for i := 0; i < length; i++ {
+			fieldToValue = make(map[string]sutils.CValueEnclosure)
+			err := PopulateFieldToValueFromSegStats(fields, measureAgg, sstMap, fieldToValue, i)
+			if err != nil {
+				return fmt.Errorf("ComputeAggEvalForMedian: Error while populating fieldToValue from sstMap, err: %v", err)
+			}
+			avgStat, err = PerformEvalAggForAvg(measureAgg, uint64(length), currResultExists, avgStat, fieldToValue)
+			currResultExists = true
+			if err != nil {
+				return fmt.Errorf("ComputeAggEvalForMedian: Error while performing eval agg for avg, err: %v", err)
 			}
 		}
 	}

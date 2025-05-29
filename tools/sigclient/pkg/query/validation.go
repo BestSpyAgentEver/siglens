@@ -292,6 +292,7 @@ func GetQueryResultForAPI(dest string, queryReq map[string]interface{}, qid int)
 		return nil, nil, fmt.Errorf("EvaluateQueryForAPI: Error marshaling request, reqBody: %v, err: %v", reqBody, err)
 	}
 
+	log.Info("code has reached GetQueryResultForAPI")
 	url := fmt.Sprintf("http://%s/api/search", dest)
 	req, err := http.NewRequestWithContext(context.TODO(), http.MethodPost, url, bytes.NewReader(reqBody))
 	if err != nil {
@@ -393,6 +394,7 @@ func getHits(response map[string]interface{}) (map[string]interface{}, error) {
 }
 
 func GetQueryResultForWebSocket(dest string, queryReq map[string]interface{}, qid int) (*Result, map[string]interface{}, error) {
+	log.Info("code has reached GetQueryResultForWebSocket")
 	webSocketURL := fmt.Sprintf("ws://%s/api/search/ws", dest)
 
 	// create websocket connection

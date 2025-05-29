@@ -113,6 +113,7 @@ type RemoteStats struct {
 type EvalStatsMetaData struct {
 	RangeStat     *structs.RangeStat
 	AvgStat       *structs.AvgStat
+	MedianStat    *structs.MedianStat
 	StrSet        map[string]struct{}
 	StrList       []string
 	MeasureResult interface{} // we should not use CValueEnclosure directly, because it treats interface having numbers as float64
@@ -305,6 +306,8 @@ func (sr *SearchResults) UpdateNonEvalSegStats(runningSegStat *structs.SegStats,
 		sstResult, err = segread.GetSegSum(runningSegStat, incomingSegStat)
 	case sutils.Avg:
 		sstResult, err = segread.GetSegAvg(runningSegStat, incomingSegStat)
+	case sutils.Median:
+		sstResult, err = segread.GetSegMedian(runningSegStat, incomingSegStat)
 	case sutils.Values:
 		// Use GetSegValue to process and get the segment value
 		res, err := segread.GetSegValue(runningSegStat, incomingSegStat)
@@ -350,12 +353,19 @@ func (sr *SearchResults) UpdateNonEvalSegStats(runningSegStat *structs.SegStats,
 }
 
 func (sr *SearchResults) UpdateSegmentStats(sstMap map[string]*structs.SegStats, measureOps []*structs.MeasureAggregator) error {
+	log.Info("Code has reached UpdateSegmentStats")
+	for idx, measureAgg := range measureOps {
+		log.Infof("UpdateSegmentStats: index %v has %v on column %v", idx, measureAgg.MeasureFunc, measureAgg.MeasureCol)
+	}
+
 	sr.updateLock.Lock()
 	defer sr.updateLock.Unlock()
 	for idx, measureAgg := range measureOps {
 		if len(sstMap) == 0 {
+			log.Info("Zero-length sstMap")
 			continue
 		}
+		log.Info("Nonzero length of sstMap")
 
 		aggOp := measureAgg.MeasureFunc
 		aggCol := measureAgg.MeasureCol
@@ -370,6 +380,7 @@ func (sr *SearchResults) UpdateSegmentStats(sstMap map[string]*structs.SegStats,
 		}
 
 		if measureAgg.ValueColRequest == nil {
+			log.Infof("Code has reached update non-eval seg stats in UpdateSegmentStats")
 			// If the measure is not an eval statement, then update the segment stats
 			resSegStat, err := sr.UpdateNonEvalSegStats(sr.runningSegStat[idx], currSst, measureAgg)
 			if err != nil {
@@ -380,6 +391,7 @@ func (sr *SearchResults) UpdateSegmentStats(sstMap map[string]*structs.SegStats,
 			continue
 		}
 
+		log.Infof("Code has reached switch-case in UpdateSegmentStats, aggOp is %v", aggOp)
 		var err error
 		switch aggOp {
 		case sutils.Min, sutils.Max:
@@ -394,6 +406,8 @@ func (sr *SearchResults) UpdateSegmentStats(sstMap map[string]*structs.SegStats,
 			err = aggregations.ComputeAggEvalForSum(measureAgg, sstMap, sr.segStatsResults.measureResults)
 		case sutils.Avg:
 			err = aggregations.ComputeAggEvalForAvg(measureAgg, sstMap, sr.segStatsResults.measureResults, sr.runningEvalStats)
+		case sutils.Median:
+			err = aggregations.ComputeAggEvalForMedian(measureAgg, sstMap, sr.segStatsResults.measureResults, sr.runningEvalStats)
 		case sutils.Values:
 			err = aggregations.ComputeAggEvalForValues(measureAgg, sstMap, sr.segStatsResults.measureResults, sr.runningEvalStats)
 		case sutils.List:
@@ -1041,6 +1055,24 @@ func (sr *SearchResults) MergeSegmentStats(measureOps []*structs.MeasureAggregat
 				}
 			}
 		case sutils.Avg:
+			var currAvgStat *structs.AvgStat
+			currVal, exist := sr.runningEvalStats[measureAgg.String()]
+			if exist {
+				isAvgStat := false
+				currAvgStat, isAvgStat = currVal.(*structs.AvgStat)
+				if !isAvgStat {
+					return fmt.Errorf("MergeSegmentStats: AvgStat not found for avg agg %v, qid=%v", measureAgg.String(), sr.qid)
+				}
+			}
+			finalAvgStat := blockresults.ReduceAvg(currAvgStat, remoteRes.AvgStat)
+			sr.runningEvalStats[measureAgg.String()] = finalAvgStat
+			if finalAvgStat != nil {
+				sr.segStatsResults.measureResults[measureAgg.String()] = sutils.CValueEnclosure{
+					Dtype: sutils.SS_DT_FLOAT,
+					CVal:  finalAvgStat.Sum / float64(finalAvgStat.Count),
+				}
+			}
+		case sutils.Median:
 			var currAvgStat *structs.AvgStat
 			currVal, exist := sr.runningEvalStats[measureAgg.String()]
 			if exist {

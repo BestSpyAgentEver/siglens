@@ -53,9 +53,10 @@ type runningStats struct {
 	number *sutils.Number         // If this is not nil, it's always correct
 	dirty  bool                   // If true, "number" is correct but "rawVal" is not
 
-	hll       *utils.GobbableHll
-	rangeStat *structs.RangeStat
-	avgStat   *structs.AvgStat
+	hll        *utils.GobbableHll
+	rangeStat  *structs.RangeStat
+	avgStat    *structs.AvgStat
+	medianStat *structs.MedianStat
 }
 
 func (rs *runningStats) syncRawValue() {
@@ -73,19 +74,21 @@ func (rs *runningStats) syncRawValue() {
 }
 
 type RunningStatsJSON struct {
-	RawVal    interface{}         `json:"rawVal"`
-	Hll       []byte              `json:"hll"`
-	RangeStat *structs.RangeStat  `json:"rangeStat"`
-	AvgStat   *structs.AvgStat    `json:"avgStat"`
-	StrSet    map[string]struct{} `json:"strSet"`
-	StrList   []string            `json:"strList"`
+	RawVal     interface{}         `json:"rawVal"`
+	Hll        []byte              `json:"hll"`
+	RangeStat  *structs.RangeStat  `json:"rangeStat"`
+	AvgStat    *structs.AvgStat    `json:"avgStat"`
+	MedianStat *structs.MedianStat `json:"medianStat"`
+	StrSet     map[string]struct{} `json:"strSet"`
+	StrList    []string            `json:"strList"`
 }
 
 type SerializedRunningStats struct {
-	RawVal    sutils.CValueEnclosure
-	Hll       *utils.GobbableHll
-	RangeStat *structs.RangeStat
-	AvgStat   *structs.AvgStat
+	RawVal     sutils.CValueEnclosure
+	Hll        *utils.GobbableHll
+	RangeStat  *structs.RangeStat
+	AvgStat    *structs.AvgStat
+	MedianStat *structs.MedianStat
 }
 
 func initRunningStats(internalMeasureFns []*structs.MeasureAggregator) []runningStats {
@@ -97,6 +100,8 @@ func initRunningStats(internalMeasureFns []*structs.MeasureAggregator) []running
 			retVal[i] = runningStats{avgStat: &structs.AvgStat{}}
 		} else if internalMeasureFns[i].MeasureFunc == sutils.Range {
 			retVal[i] = runningStats{rangeStat: agg.InitRangeStat()}
+		} else if internalMeasureFns[i].MeasureFunc == sutils.Median {
+			retVal[i] = runningStats{medianStat: &structs.MedianStat{}}
 		}
 	}
 	return retVal
@@ -439,6 +444,22 @@ func ReduceAvg(avgStat1 *structs.AvgStat, avgStat2 *structs.AvgStat) *structs.Av
 	return &structs.AvgStat{
 		Sum:   avgStat1.Sum + avgStat2.Sum,
 		Count: avgStat1.Count + avgStat2.Count,
+	}
+}
+
+func ReduceMedian(medianStat1 *structs.MedianStat, medianStat2 *structs.MedianStat) *structs.MedianStat {
+	if medianStat1 == nil {
+		return medianStat2
+	} else if medianStat2 == nil {
+		return medianStat1
+	}
+
+	res := make([]float64, len(medianStat1.Values))
+	copy(res, medianStat1.Values)
+	res = append(res, medianStat2.Values...)
+
+	return &structs.MedianStat{
+		Values: res,
 	}
 }
 

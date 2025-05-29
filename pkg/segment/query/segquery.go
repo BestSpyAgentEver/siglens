@@ -993,9 +993,16 @@ func applyAggOpOnSegments(sortedQSRSlice []*QuerySegmentRequest, allSegFileResul
 		// If agg has evaluation functions, we should recompute raw data instead of using the previously stored statistical data in the segment
 
 		var sstMap map[string]*structs.SegStats
+		log.Infof("applyAggOpOnSegments: %v", measureOperations)
 
 		if canUseSSTForStats(searchType, isSegmentFullyEnclosed, segReq.aggs) {
+			log.Info("can use SST for stats")
 			sstMap, err = segread.ReadSegStats(segReq.segKey, segReq.qid)
+			log.Infof("sstMap[latency] is %+v", sstMap["latency"])
+			if len(sstMap["latency"].Values) == 0 {
+				log.Warn("Inserted dummy data for latency median")
+				sstMap["latency"].Values = []float64{-17, -18}
+			}
 			if err != nil {
 				log.Errorf("qid=%d, applyAggOpOnSegments: Failed to read segStats for segKey %+v! computing segStats from raw records. Error: %v",
 					qid, segReq.segKey, err)
@@ -1012,6 +1019,7 @@ func applyAggOpOnSegments(sortedQSRSlice []*QuerySegmentRequest, allSegFileResul
 				allSegFileResults.AddResultCount(uint64(segReq.TotalRecords))
 			}
 		} else {
+			log.Infof("cannot use SST for stats")
 			sstMap, err = computeSegStatsFromRawRecords(segReq, qs, allSegFileResults, qid, nodeRes)
 			if err != nil {
 				allSegFileResults.AddError(err)
@@ -1033,8 +1041,16 @@ func applyAggOpOnSegments(sortedQSRSlice []*QuerySegmentRequest, allSegFileResul
 	}
 
 	finalSstMap := statsRes.GetSegStats()
+	log.Infof("finalSstMap in applyAggOpOnSegments is %v", finalSstMap)
+	val := finalSstMap["latency"]
+	log.Infof("Latency stats:\n\tcount: %v, Hll length: %v, IsNumeric: %v, Max: %v, Min: %v, NumStats: %v, Records: %v, StringStats: %v, Values: %v", val.Count, len(val.Hll.Hll.ToBytes()), val.IsNumeric, val.Max, val.Min, val.NumStats, val.Records, val.StringStats, val.Values)
+	// for key, value := range finalSstMap {
+	// 	log.Infof("\t{%v, %v}", key, value)
+	// }
+	// log.Info("}")
 
 	if !getSstMap {
+		log.Info("applyAggOpOnSegments calling UpdateSegmentStats")
 		err = allSegFileResults.UpdateSegmentStats(finalSstMap, measureOperations)
 		if err != nil {
 			log.Errorf("qid=%d,  applyAggOpOnSegments : ReadSegStats: Failed to update segment stats for segKey! Error: %v", qid, err)
