@@ -178,6 +178,7 @@ func applyAggregationsToSingleBlock(multiReader *segread.MultiColSegmentReader, 
 			isBlkFullyEncosed, qid, aggsKeyWorkingBuf, timeRangeBuckets, nodeRes)
 	}
 	allSearchResults.AddBlockResults(blkResults)
+	blkResults.Close()
 }
 
 func addRecordToAggregations(grpReq *structs.GroupByRequest, timeHistogram *structs.TimeBucket, measureInfo map[string][]int, MFuncs []*structs.MeasureAggregator,
@@ -814,6 +815,7 @@ func applyAggregationsToSingleBlockFastPath(aggs *structs.QueryAggregators,
 		queryMetrics.IncrementNumBlocksWithMatch(1)
 	}
 	allSearchResults.AddBlockResults(blkResults)
+	blkResults.Close()
 }
 
 func applySegStatsToMatchedRecords(ops []*structs.MeasureAggregator, segmentSearchRecords *SegmentSearchStatus,
@@ -1086,7 +1088,7 @@ func applySegmentStatsUsingDictEncoding(mcr *segread.MultiColSegmentReader, filt
 		for colName, rawVals := range results {
 			for i, rawVal := range rawVals {
 				recNum := filterdRecNums[i]
-				addValsToTimeStats(lStats, colName, latestTs, earliestTs, rawVal, mcr, needLatestOrEarliest, blockNum, recNum, qid)
+				addValsToTimeStats(lStats, colName, latestTs, earliestTs, rawVal.CVal, mcr, needLatestOrEarliest, blockNum, recNum, qid)
 				colUsage, exists := aggColUsage[colName]
 				if !exists {
 					colUsage = sutils.NoEvalUsage

@@ -722,8 +722,6 @@ function processLiveTailQueryUpdate(res, eventType, totalEventsSearched, timeToF
 }
 
 function processQueryUpdate(res, eventType, totalEventsSearched, timeToFirstByte, totalHits) {
-    lastQType = res.qtype;
-
     if (res.hits && res.hits.records !== null && res.hits.records.length >= 1 && res.qtype === 'logs-query') {
         if (res.columnsOrder != undefined && res.columnsOrder.length > 0) {
             lastColumnsOrder = _.uniq(['timestamp', 'logs', ...res.columnsOrder]);
@@ -798,6 +796,8 @@ function processLiveTailCompleteUpdate(res, eventType, totalEventsSearched, time
 }
 
 function processCompleteUpdate(res, eventType, totalEventsSearched, timeToFirstByte, eqRel) {
+    lastQType = res.qtype;
+
     let totalHits = res.totalMatched ? res.totalMatched.value : 0;
 
     if (res.qtype === 'logs-query' && res.hits && res.hits.records) {
@@ -1157,12 +1157,15 @@ function codeToBuilderParsing(filterValue) {
     else $('#aggregate-attribute-text').show();
     if (firstBoxSet.size > 0) $('#search-filter-text').hide();
     else $('#search-filter-text').show();
+ 
+    //eslint-disable-next-line no-undef
+    updateResetButtonVisibility();
 }
 
 function renderLogsGrid(columnOrder, hits) {
     if (gridDiv == null) {
         gridDiv = document.querySelector('#LogResultsGrid');
-        //eslint-disable-next-line no-undef
+         
         new agGrid.Grid(gridDiv, gridOptions);
     }
 
@@ -1181,7 +1184,6 @@ function renderLogsGrid(columnOrder, hits) {
             return {
                 field: colName,
                 headerName: colName,
-                cellRenderer: myCellRenderer,
                 cellRendererParams: { colName: colName },
             };
         }
@@ -1232,3 +1234,4 @@ function updateGridView() {
         gridOptions.api.setRowData(currentPageData);
     }
 }
+

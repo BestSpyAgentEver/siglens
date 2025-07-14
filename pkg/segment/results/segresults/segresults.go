@@ -114,6 +114,7 @@ type EvalStatsMetaData struct {
 	RangeStat     *structs.RangeStat
 	AvgStat       *structs.AvgStat
 	StrSet        map[string]struct{}
+	Hll           *utils.GobbableHll
 	StrList       []string
 	MeasureResult interface{} // we should not use CValueEnclosure directly, because it treats interface having numbers as float64
 }
@@ -325,6 +326,8 @@ func (sr *SearchResults) UpdateNonEvalSegStats(runningSegStat *structs.SegStats,
 		return runningSegStat, nil
 	case sutils.Cardinality:
 		sstResult, err = segread.GetSegCardinality(runningSegStat, incomingSegStat)
+	case sutils.EstdcError:
+		sstResult, err = segread.GetSegEstdcError(runningSegStat, incomingSegStat)
 	case sutils.Perc:
 		sstResult, err = segread.GetSegPerc(runningSegStat, incomingSegStat, measureAgg.Param)
 	case sutils.Count:
@@ -430,6 +433,8 @@ func (sr *SearchResults) UpdateSegmentStats(sstMap map[string]*structs.SegStats,
 			err = aggregations.ComputeAggEvalForRange(measureAgg, sstMap, sr.segStatsResults.measureResults, sr.runningEvalStats)
 		case sutils.Cardinality:
 			err = aggregations.ComputeAggEvalForCardinality(measureAgg, sstMap, sr.segStatsResults.measureResults, sr.runningEvalStats)
+		case sutils.EstdcError:
+			err = aggregations.ComputeAggEvalForEstdcError(measureAgg, sstMap, sr.segStatsResults.measureResults, sr.runningEvalStats)
 		case sutils.Count:
 			err = aggregations.ComputeAggEvalForCount(measureAgg, sstMap, sr.segStatsResults.measureResults)
 		case sutils.Sum:
@@ -1111,7 +1116,44 @@ func (sr *SearchResults) MergeSegmentStats(measureOps []*structs.MeasureAggregat
 					CVal:  finalAvgStat.Sum / float64(finalAvgStat.Count),
 				}
 			}
-		case sutils.Cardinality, sutils.Values:
+		case sutils.Cardinality, sutils.EstdcError:
+			currHll, exist := sr.runningEvalStats[measureAgg.String()]
+			if !exist {
+				currHll = structs.CreateNewHll()
+				sr.runningEvalStats[measureAgg.String()] = currHll
+			}
+
+			CValEnc, err := sutils.Reduce(sutils.CValueEnclosure{
+				Dtype: sutils.SS_DT_GOBBABLE_HLL_PTR,
+				CVal:  currHll,
+			},
+				sutils.CValueEnclosure{
+					Dtype: sutils.SS_DT_GOBBABLE_HLL_PTR,
+					CVal:  remoteRes.Hll,
+				},
+				aggOp)
+
+			if err != nil {
+				return fmt.Errorf("MergeSegmentStats: Error while merging hll for %v qid=%v, err: %v", measureAgg.String(), sr.qid, err)
+			}
+			if CValEnc.Dtype != sutils.SS_DT_STRING_SET {
+				return fmt.Errorf("MergeSegmentStats: Error while merging hll for %v qid=%v, dtype: %v", measureAgg.String(), sr.qid, CValEnc.Dtype)
+			}
+
+			sr.runningEvalStats[measureAgg.String()] = CValEnc.CVal.(*utils.GobbableHll)
+
+			if aggOp == sutils.Cardinality {
+				sr.segStatsResults.measureResults[measureAgg.String()] = sutils.CValueEnclosure{
+					Dtype: sutils.SS_DT_SIGNED_NUM,
+					CVal:  int64(CValEnc.CVal.(*utils.GobbableHll).Cardinality()),
+				}
+			} else { // aggOp == sutils.EstdcError
+				sr.segStatsResults.measureResults[measureAgg.String()] = sutils.CValueEnclosure{
+					Dtype: sutils.SS_DT_FLOAT,
+					CVal:  CValEnc.CVal.(*utils.GobbableHll).RelativeError(),
+				}
+			}
+		case sutils.Values:
 			currSet, exist := sr.runningEvalStats[measureAgg.String()]
 			if !exist {
 				currSet = make(map[string]struct{})
@@ -1137,16 +1179,9 @@ func (sr *SearchResults) MergeSegmentStats(measureOps []*structs.MeasureAggregat
 
 			sr.runningEvalStats[measureAgg.String()] = CValEnc.CVal.(map[string]struct{})
 
-			if measureAgg.MeasureFunc == sutils.Cardinality {
-				sr.segStatsResults.measureResults[measureAgg.String()] = sutils.CValueEnclosure{
-					Dtype: sutils.SS_DT_SIGNED_NUM,
-					CVal:  int64(len(CValEnc.CVal.(map[string]struct{}))),
-				}
-			} else {
-				sr.segStatsResults.measureResults[measureAgg.String()] = sutils.CValueEnclosure{
-					Dtype: sutils.SS_DT_STRING_SLICE,
-					CVal:  utils.GetSortedStringKeys(CValEnc.CVal.(map[string]struct{})),
-				}
+			sr.segStatsResults.measureResults[measureAgg.String()] = sutils.CValueEnclosure{
+				Dtype: sutils.SS_DT_STRING_SLICE,
+				CVal:  utils.GetSortedStringKeys(CValEnc.CVal.(map[string]struct{})),
 			}
 		case sutils.List:
 			_, exist = sr.runningEvalStats[measureAgg.String()]
@@ -1213,7 +1248,18 @@ func (sr *SearchResults) GetRemoteStats() (*RemoteStats, error) {
 						AvgStat: metadata.(*structs.AvgStat),
 					}
 				}
-			case sutils.Cardinality, sutils.Values:
+			case sutils.Cardinality, sutils.EstdcError:
+				metadata, exist := sr.runningEvalStats[measureAgg.String()]
+				if exist {
+					_, isHLL := metadata.(*utils.GobbableHll)
+					if !isHLL {
+						return nil, fmt.Errorf("GetRemoteStats: HLL not found for agg %v, qid=%v", measureAgg.String(), sr.qid)
+					}
+					remoteStats.EvalStats[measureAgg.String()] = EvalStatsMetaData{
+						Hll: metadata.(*utils.GobbableHll),
+					}
+				}
+			case sutils.Values:
 				metadata, exist := sr.runningEvalStats[measureAgg.String()]
 				if exist {
 					_, isStrSet := metadata.(map[string]struct{})

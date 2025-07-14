@@ -201,6 +201,7 @@ type QueryAggregators struct {
 	StatisticExpr   *StatisticExpr
 	TransactionExpr *TransactionArguments
 	WhereExpr       *BoolExpr
+	ToJsonExpr      *ToJsonExpr
 }
 
 type GenerateEvent struct {
@@ -262,6 +263,7 @@ type RunningStreamStatsResults struct {
 	DeviationStat       *DeviationStat
 	CardinalityMap      map[string]int
 	CardinalityHLL      *utils.GobbableHll
+	PercTDigest         *utils.GobbableTDigest
 	ValuesMap           map[string]struct{}
 }
 
@@ -366,6 +368,33 @@ type AppendCmdOption struct {
 	OptionType string
 	Value      interface{}
 }
+
+type ToJsonExpr struct {
+	FieldsDtypes    []*ToJsonFieldsDtypeOptions
+	DefaultType     *ToJsonFieldsDtypeOptions
+	FillNull        bool
+	IncludeInternal bool
+	OutputField     string
+	AllFields       bool
+}
+
+type ToJsonFieldsDtypeOptions struct {
+	Dtype ToJsonDtypes
+	Regex *utils.GobbableRegex
+}
+
+type ToJsonDtypes uint8
+
+const (
+	TJ_None ToJsonDtypes = iota
+	TJ_Auto
+	TJ_Bool
+	TJ_Json
+	TJ_Num
+	TJ_Str
+	// Data type will be set later during processing
+	TJ_PostProcess
+)
 
 // Only NewColName and one of the other fields should have a value
 type LetColumnsRequest struct {
@@ -736,6 +765,14 @@ func (ss *SegStats) GetHllCardinality() uint64 {
 	}
 
 	return ss.Hll.Cardinality()
+}
+
+func (ss *SegStats) GetHllError() float64 {
+	if ss == nil || ss.Hll == nil {
+		return 0
+	}
+
+	return ss.Hll.RelativeError()
 }
 
 func (ss *SegStats) GetHllBytes() []byte {
@@ -1550,15 +1587,13 @@ func AddAllColumnsInStreamStatsOptions(cols map[string]struct{}, streamStatsOpti
 }
 
 var unsupportedStatsFuncs = map[sutils.AggregateFunctions]struct{}{
-	sutils.Estdc:      {},
-	sutils.EstdcError: {},
-	sutils.ExactPerc:  {},
-	sutils.UpperPerc:  {},
-	sutils.Median:     {},
-	sutils.Mode:       {},
-	sutils.First:      {},
-	sutils.Last:       {},
-	sutils.StatsRate:  {},
+	sutils.ExactPerc: {},
+	sutils.UpperPerc: {},
+	sutils.Median:    {},
+	sutils.Mode:      {},
+	sutils.First:     {},
+	sutils.Last:      {},
+	sutils.StatsRate: {},
 }
 
 var unsupportedEvalFuncs = map[string]struct{}{
@@ -1576,7 +1611,6 @@ var unsupportedEvalFuncs = map[string]struct{}{
 	"getfields":        {},
 	"isnum":            {},
 	"isnotnull":        {},
-	"spath":            {},
 	"eventcount":       {},
 }
 

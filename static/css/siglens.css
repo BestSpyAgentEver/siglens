@@ -3325,7 +3325,6 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     height: 30px;
     border-bottom: 1px solid var(--border-color-regular);
     background-color: var(--db-bg-color);
-    z-index: 1;
 }
 
 .panel div.panel-header p {
@@ -3378,12 +3377,13 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     width: 100%;
     height: 100%;
     border: none;
-    background-color: var(--datatable-bg-color);
+    background-color: transparent;
     font-size: 24px;
     font-weight: bold;
     color: var(--text-color);
     z-index: 1;
     transform: none;
+    box-shadow: none;
 }
 
 .panel-body #empty-response {
@@ -6751,6 +6751,11 @@ p#versionInfo {
 
 #pqs-id-details {
     height: 80vh;
+    width: 514px !important;
+}
+
+.text-cursor {
+    cursor: text !important;
 }
 
 #clear-pqs-info,
@@ -6823,8 +6828,7 @@ p#versionInfo {
 }
 
 #cancel-upload-btn,
-#cancel-overwrite-btn,
-#cancel-delete-btn {
+#cancel-overwrite-btn {
     margin-right: 10px;
 }
 
@@ -7518,7 +7522,6 @@ p#versionInfo {
     display: flex;
     align-items: center;
     gap: 10px;
-    min-width: 400px;
 }
 
 .page-size-select {
@@ -7715,7 +7718,6 @@ p#versionInfo {
     height: 100%;
     position: relative;
     flex: 0 0 4px;
-    z-index: 1;
 }
 
 .fields-resizer:hover,

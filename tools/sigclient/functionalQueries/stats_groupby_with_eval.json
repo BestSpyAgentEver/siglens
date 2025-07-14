@@ -1,5 +1,5 @@
 {
-    "queryText": "city=Boston AND (app_name=Cheet* OR app_name=Far*) | stats avg(eval(if(http_status > 300, 100, 10))) as avg, sum(eval(if(http_status > 400, 100, 10))) as sum, min(eval(if(http_status > 400, \"abc\", \"ABC\"))) as min, max(eval(if(http_status > 400, \"Error\", \"Success\"))) as max, range(eval(if(http_status > 400, latitude, longitude))) as range, count(eval(http_status > 300 AND http_method=\"PATCH\")) as count, values(eval(if(http_status > 302, \"Error\", http_status))) as values, dc(eval(if(http_status > 310, \"Error\", http_status))) as dc, list(eval(if(http_status > 400, 1, 1))) as list, sumsq(eval(if(http_status > 400, 1, 0))) as sumsq, var(eval(if(http_status > 400, 1, 0))) as var, varp(eval(if(http_status > 400, 1, 0))) as varp, stdev(eval(if(http_status > 400, 1, 0))) as stdev, stdevp(eval(if(http_status > 400, 1, 0))) as stdevp BY http_method, bool_col",
+    "queryText": "city=Boston AND (app_name=Cheet* OR app_name=Far*) | stats avg(eval(if(http_status > 300, 100, 10))) as avg, sum(eval(if(http_status > 400, 100, 10))) as sum, min(eval(if(http_status > 400, \"abc\", \"ABC\"))) as min, max(eval(if(http_status > 400, \"Error\", \"Success\"))) as max, range(eval(if(http_status > 400, latitude, longitude))) as range, count(eval(http_status > 300 AND http_method=\"PATCH\")) as count, values(eval(if(http_status > 302, \"Error\", http_status))) as values, dc(eval(if(http_status > 310, \"Error\", http_status))) as dc, estdc_error(eval(if(http_status > 310, \"Error\", http_status))) as dcerror, list(eval(if(http_status > 400, 1, 1))) as list, sumsq(eval(if(http_status > 400, 1, 0))) as sumsq, var(eval(if(http_status > 400, 1, 0))) as var, varp(eval(if(http_status > 400, 1, 0))) as varp, stdev(eval(if(http_status > 400, 1, 0))) as stdev, stdevp(eval(if(http_status > 400, 1, 0))) as stdevp BY http_method, bool_col",
     "expectedResult": {
         "bucketCount": 8,
         "qtype": "aggs-query",
@@ -7,7 +7,11 @@
             "http_method",
             "bool_col"
         ],
-        "measureFunctions": [
+         "measureFunctions": [
+            "avg",
+            "sum",
+            "min",
+            "dc",
             "max",
             "sumsq",
             "stdev",
@@ -33,6 +37,7 @@
                     "avg": 100,
                     "count": 0,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],
@@ -59,6 +64,7 @@
                     "avg": 100,
                     "count": 1,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],
@@ -85,6 +91,7 @@
                     "avg": 10,
                     "count": 0,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],
@@ -111,6 +118,7 @@
                     "avg": 100,
                     "count": 0,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],
@@ -137,6 +145,7 @@
                     "avg": 100,
                     "count": 0,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],
@@ -163,6 +172,7 @@
                     "avg": 10,
                     "count": 0,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],
@@ -189,6 +199,7 @@
                     "avg": 100,
                     "count": 0,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],
@@ -215,6 +226,7 @@
                     "avg": 10,
                     "count": 0,
                     "dc": 1,
+                    "dcerror":0,
                     "list": [
                         "1"
                     ],

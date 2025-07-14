@@ -29,6 +29,11 @@ multi_value.json
 mvappend.json
 mvdedup.json
 mvexpand.json
+mvfilter.json
+tojson_dtype.json
+tojson_fillnull.json
+tojson_wrdtype_nofillnull.json
+tojson_wrename.json
 rex_stats_groupby_eval_stats.json
 eval_stats_sort_stats_groupby_where.json
 eval_stats_sort.json
@@ -44,6 +49,7 @@ top.json
 rare.json
 rare_top.json
 stats_top.json
+stats_estdcerr.json
 streamstats_win3.json
 streamstats_win4_currF.json
 streamstats_win4_grpby.json

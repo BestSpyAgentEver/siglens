@@ -93,7 +93,7 @@ type SerializedRunningStats struct {
 func initRunningStats(internalMeasureFns []*structs.MeasureAggregator) []runningStats {
 	retVal := make([]runningStats, len(internalMeasureFns))
 	for i := 0; i < len(internalMeasureFns); i++ {
-		if internalMeasureFns[i].MeasureFunc == sutils.Cardinality {
+		if internalMeasureFns[i].MeasureFunc == sutils.Cardinality || internalMeasureFns[i].MeasureFunc == sutils.EstdcError {
 			retVal[i] = runningStats{hll: structs.CreateNewHll()}
 		} else if internalMeasureFns[i].MeasureFunc == sutils.Avg {
 			retVal[i] = runningStats{avgStat: &structs.AvgStat{}}
@@ -226,18 +226,22 @@ func (rr *RunningBucketResults) AddMeasureResults(runningStats *[]runningStats, 
 				batchErr.AddError("RunningBuckketResults.AddMeasureResults:Percentile", err)
 			}
 			i += step
-		case sutils.Cardinality:
+		case sutils.Cardinality, sutils.EstdcError:
 			if rr.currStats[i].ValueColRequest == nil {
 				err := hllAddRawCval((*runningStats)[i].hll, &measureResults[i])
 				if err != nil {
-					batchErr.AddError("RunningBucketResults.AddMeasureResults:Cardinality", err)
+					batchErr.AddError("RunningBucketResults.AddMeasureResults:Cardinality/EstdcError", err)
 					continue
 				}
 				continue
 			}
-			fallthrough
+			step, err := rr.AddEvalResultsForCardinalityRelated(runningStats, measureResults, i, fieldToValue)
+			if err != nil {
+				batchErr.AddError("RunningBucketResults.AddMeasureResults:Cardinality/EstdcError", err)
+			}
+			i += step
 		case sutils.Values:
-			step, err := rr.AddEvalResultsForValuesOrCardinality(runningStats, measureResults, i, fieldToValue)
+			step, err := rr.AddEvalResultsForValues(runningStats, measureResults, i, fieldToValue)
 			if err != nil {
 				batchErr.AddError("RunningBucketResults.AddMeasureResults:Values", err)
 			}
@@ -418,7 +422,7 @@ func (rr *RunningBucketResults) mergeRunningStats(runningStats *[]runningStats, 
 				}
 				i += (len(fields) - 1)
 			}
-		case sutils.Cardinality:
+		case sutils.Cardinality, sutils.EstdcError:
 			if rr.currStats[i].ValueColRequest == nil {
 				err := (*runningStats)[i].hll.StrictUnion(toJoinRunningStats[i].hll.Hll)
 				if err != nil {
@@ -855,7 +859,40 @@ func (rr *RunningBucketResults) AddEvalResultsForPerc(runningStats *[]runningSta
 	return len(fieldToValue) - 1, nil
 }
 
-func (rr *RunningBucketResults) AddEvalResultsForValuesOrCardinality(runningStats *[]runningStats, measureResults []sutils.CValueEnclosure, i int, fieldToValue map[string]sutils.CValueEnclosure) (int, error) {
+// used for cardinality and estdc_error
+func (rr *RunningBucketResults) AddEvalResultsForCardinalityRelated(runningStats *[]runningStats, measureResults []sutils.CValueEnclosure, i int, fieldToValue map[string]sutils.CValueEnclosure) (int, error) {
+
+	(*runningStats)[i].syncRawValue()
+	if (*runningStats)[i].rawVal.CVal == nil {
+		(*runningStats)[i].rawVal = sutils.CValueEnclosure{
+			Dtype: sutils.SS_DT_GOBBABLE_HLL_PTR,
+			CVal:  structs.CreateNewHll(),
+		}
+	}
+	hll := (*runningStats)[i].rawVal.CVal.(*utils.GobbableHll)
+
+	if rr.currStats[i].ValueColRequest == nil {
+		strVal, err := measureResults[i].GetString()
+		if err != nil {
+			return 0, fmt.Errorf("RunningBucketResults.AddEvalResultsForCardinalityRelated: failed to add measurement to running stats, err: %v", err)
+		}
+		hll.AddRaw(xxhash.Sum64String(strVal))
+		(*runningStats)[i].rawVal.CVal = hll
+		(*runningStats)[i].number = nil
+		return 0, nil
+	}
+
+	err := agg.PerformAggEvalForCardinality(rr.currStats[i], hll, fieldToValue)
+	if err != nil {
+		return 0, fmt.Errorf("RunningBucketResults.AddEvalResultsForCardinalityRelated: failed to evaluate ValueColRequest to string, err: %v", err)
+	}
+	(*runningStats)[i].rawVal.CVal = hll
+	(*runningStats)[i].number = nil
+
+	return len(fieldToValue) - 1, nil
+}
+
+func (rr *RunningBucketResults) AddEvalResultsForValues(runningStats *[]runningStats, measureResults []sutils.CValueEnclosure, i int, fieldToValue map[string]sutils.CValueEnclosure) (int, error) {
 
 	(*runningStats)[i].syncRawValue()
 	if (*runningStats)[i].rawVal.CVal == nil {
@@ -869,7 +906,7 @@ func (rr *RunningBucketResults) AddEvalResultsForValuesOrCardinality(runningStat
 	if rr.currStats[i].ValueColRequest == nil {
 		strVal, err := measureResults[i].GetString()
 		if err != nil {
-			return 0, fmt.Errorf("RunningBucketResults.AddEvalResultsForValuesOrCardinality: failed to add measurement to running stats, err: %v", err)
+			return 0, fmt.Errorf("RunningBucketResults.AddEvalResultsForValues: failed to add measurement to running stats, err: %v", err)
 		}
 		strSet[strVal] = struct{}{}
 		(*runningStats)[i].rawVal.CVal = strSet
@@ -877,9 +914,9 @@ func (rr *RunningBucketResults) AddEvalResultsForValuesOrCardinality(runningStat
 		return 0, nil
 	}
 
-	_, err := agg.PerformAggEvalForCardinality(rr.currStats[i], strSet, fieldToValue)
+	_, err := agg.PerformAggEvalForValues(rr.currStats[i], strSet, fieldToValue)
 	if err != nil {
-		return 0, fmt.Errorf("RunningBucketResults.AddEvalResultsForValuesOrCardinality: failed to evaluate ValueColRequest to string, err: %v", err)
+		return 0, fmt.Errorf("RunningBucketResults.AddEvalResultsForValues: failed to evaluate ValueColRequest to string, err: %v", err)
 	}
 	(*runningStats)[i].rawVal.CVal = strSet
 	(*runningStats)[i].number = nil
@@ -1191,17 +1228,19 @@ func hllAddRawCval(hll *utils.GobbableHll, cval *sutils.CValueEnclosure) error {
 	case sutils.SS_DT_STRING_SLICE:
 		hll.AddRaw(xxhash.Sum64String(fmt.Sprintf("%v", cval.CVal.([]string))))
 	case sutils.SS_DT_BOOL:
+		// for boolean-valued fields, the cardinality is small, and this implementation of HLL stores the values explicitly for smaller cardinalities
+		// so we don't need to worry about hashing and the statistical properties associated with it.
 		if cval.CVal.(bool) {
-			hll.AddRaw(uint64(1))
+			hll.AddRaw(1) // 1, 2 serve as sentinel values
 		} else {
-			hll.AddRaw(uint64(0))
+			hll.AddRaw(2) // cannot use AddRaw(0), 0 is not a valid value for AddRaw(). See: Hll.AddRaw()
 		}
 	case sutils.SS_DT_UNSIGNED_NUM:
-		hll.AddRaw(cval.CVal.(uint64))
+		hll.AddRaw(xxhash.Sum64(utils.Uint64ToBytesLittleEndian(cval.CVal.(uint64))))
 	case sutils.SS_DT_SIGNED_NUM:
-		hll.AddRaw(uint64(cval.CVal.(int64)))
+		hll.AddRaw(xxhash.Sum64(utils.Int64ToBytesLittleEndian(cval.CVal.(int64))))
 	case sutils.SS_DT_FLOAT:
-		hll.AddRaw(xxhash.Sum64String(fmt.Sprintf("%f", cval.CVal.(float64))))
+		hll.AddRaw(xxhash.Sum64(utils.Float64ToBytesLittleEndian(cval.CVal.(float64))))
 	case sutils.SS_DT_BACKFILL:
 		return utils.NewErrorWithCode(utils.NIL_VALUE_ERR, fmt.Errorf("CValueEnclosure GetString: nil value"))
 	default:
